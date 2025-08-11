@@ -233,8 +233,8 @@ with st.sidebar:
         st.warning("Not connected. Set connection to use validators.")
 
 
-st.title("📄 Tender OCR Validator (Standalone Streamlit)")
-st.caption("All input sections are visible. Default: table view. Toggle to JSON per section.")
+st.title("📄 Azure OCR Validator")
+st.caption(" - Shreyansh Srivastava")
 
 # --- Single Tender Section ---
 st.subheader("1) Single Tender")
@@ -357,3 +357,4 @@ if st.session_state.get("csv_results"):
 
 st.markdown("---")
 st.caption(f"App last loaded: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
