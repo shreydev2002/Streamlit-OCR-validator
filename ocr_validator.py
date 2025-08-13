@@ -12,7 +12,7 @@ import base64
 
 # Page configuration
 st.set_page_config(
-    page_title="Tender OCR Validator",
+    page_title="OCR Validator",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -568,4 +568,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
