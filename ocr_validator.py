@@ -565,8 +565,46 @@ def main():
     else:
         st.info("👈 Please connect to Azure using the sidebar to start validating tender IDs.")
 
+    # --- Footer Signature ---
+    st.markdown("""
+        <style>
+        .signature {
+            position: fixed;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            text-align: right;
+            font-size: 0.8  5rem;
+            opacity: 0.5;
+            z-index: 9999;
+            transition: opacity 0.3s ease;
+        }
+        .signature:hover {
+            opacity: 1;
+        }
+        /* Dark mode */
+        [data-theme="dark"] .signature {
+            color: #cccccc;
+        }
+        /* Light mode */
+        [data-theme="light"] .signature {
+            color: #666666;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div class="signature">
+            - <b>Shreyansh Srivastava  🚀</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 if __name__ == "__main__":
     main()
+
 
 
