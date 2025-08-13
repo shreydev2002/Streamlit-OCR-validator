@@ -574,7 +574,7 @@ def main():
             left: 0;
             right: 0;
             text-align: right;
-            font-size: 0.8  5rem;
+            font-size: 0.85rem;
             opacity: 0.5;
             z-index: 9999;
             transition: opacity 0.3s ease;
@@ -605,6 +605,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
