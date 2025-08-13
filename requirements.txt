@@ -1,3 +1,5 @@
 streamlit
 azure-storage-blob
 pandas
+openpyxl
+certifi
