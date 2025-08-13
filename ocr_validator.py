@@ -3,12 +3,16 @@ import pandas as pd
 import io
 import time
 import json
+import concurrent.futures  # Added for concurrency
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 
 from azure.storage.blob import BlobServiceClient
 import base64
+
+# This import is not used in the code, but kept as per original script
+from certifi import contents
 
 # Page configuration
 st.set_page_config(
@@ -103,7 +107,7 @@ def get_latest_modified_timestamp(blobs):
 
 
 def validate_tender_blob(container_client, tender_id: str):
-    """Core validation logic for a single tender ID"""
+    """Core validation logic for a single tender ID (uncached)"""
     result = {
         "Tender ID": tender_id,
         "Status": "",
@@ -182,6 +186,62 @@ def validate_tender_blob(container_client, tender_id: str):
         result["Notes"] = "Mismatch detected"
 
     return result
+
+
+# --- IMPROVEMENT 1: CACHING ---
+@st.cache_data(ttl=600)  # Cache results for 10 minutes
+def validate_tender_blob_cached(_connection_string: str, tender_id: str):
+    """
+    Cached wrapper for the validation logic.
+    Accepts connection_string to be hashable for caching.
+    """
+    try:
+        # Create a new client inside the cached function
+        blob_service_client = BlobServiceClient.from_connection_string(_connection_string)
+        container_client = blob_service_client.get_container_client("tender")
+        return validate_tender_blob(container_client, tender_id)
+    except Exception as e:
+        return {
+            "Tender ID": tender_id, "Status": "Error",
+            "Notes": f"Failed during cached validation: {str(e)}"
+        }
+
+
+# --- IMPROVEMENT 2: CONCURRENCY ---
+def process_tenders_concurrently(tender_ids: List[str]) -> List[Dict[str, Any]]:
+    """Processes a list of tender IDs in parallel using a thread pool."""
+    results = []
+    total_count = len(tender_ids)
+
+    status_text = st.empty()
+    progress_bar = st.progress(0)
+    start_time = time.time()
+
+    # Use a thread pool to process validations concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Pass the connection string from session state to the cached function
+        conn_str = st.session_state.connection_string
+        future_to_tender = {executor.submit(validate_tender_blob_cached, conn_str, tid): tid for tid in tender_ids}
+
+        for i, future in enumerate(concurrent.futures.as_completed(future_to_tender)):
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                tender_id = future_to_tender[future]
+                results.append({"Tender ID": tender_id, "Status": "Error", "Notes": str(e)})
+
+            # Update progress
+            progress_bar.progress((i + 1) / total_count)
+            status_text.text(f"Validating... ({i + 1}/{total_count})")
+
+    elapsed_time = time.time() - start_time
+    status_text.text(f"Validation completed in {elapsed_time:.2f} seconds!")
+    st.success(f"Validated {total_count} tender IDs in {elapsed_time:.2f} seconds!")
+
+    # Sort results to maintain a somewhat consistent order
+    results_sorted = sorted(results, key=lambda x: tender_ids.index(x['Tender ID']))
+    return results_sorted
 
 
 # Azure Connection Management
@@ -351,11 +411,10 @@ def single_tender_validation():
         if submitted and tender_id:
             with st.spinner("Validating tender ID..."):
                 try:
-                    container_client = get_container_client()
-                    if container_client:
-                        result = validate_tender_blob(container_client, tender_id.strip())
-                        st.session_state.single_validation_results = [result]
-                        st.success("Validation completed!")
+                    # MODIFIED: Use the new cached function
+                    result = validate_tender_blob_cached(st.session_state.connection_string, tender_id.strip())
+                    st.session_state.single_validation_results = [result]
+                    st.success("Validation completed!")
                 except Exception as e:
                     st.error(f"Validation failed: {str(e)}")
 
@@ -418,34 +477,13 @@ def batch_validation():
                         if line.strip():
                             tender_ids.append(line.strip())
 
+                # Remove duplicates
+                tender_ids = sorted(list(set(tender_ids)))
+
                 if tender_ids:
-                    st.session_state.batch_validation_results = []
-
-                    # Progress bar
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-
-                    results = []
-                    for i, tender_id in enumerate(tender_ids):
-                        status_text.text(f"Validating {tender_id}... ({i + 1}/{len(tender_ids)})")
-
-                        try:
-                            container_client = get_container_client()
-                            if container_client:
-                                result = validate_tender_blob(container_client, tender_id)
-                                results.append(result)
-                        except Exception as e:
-                            results.append({
-                                "Tender ID": tender_id,
-                                "Status": "Error",
-                                "Notes": str(e)
-                            })
-
-                        progress_bar.progress((i + 1) / len(tender_ids))
-
+                    # MODIFIED: Use the new concurrent processing function
+                    results = process_tenders_concurrently(tender_ids)
                     st.session_state.batch_validation_results = results
-                    status_text.text("Validation completed!")
-                    st.success(f"Validated {len(tender_ids)} tender IDs!")
                 else:
                     st.warning("Please enter valid tender IDs")
 
@@ -488,47 +526,16 @@ def csv_upload_validation():
             if col is None:
                 col = df.columns[0]
 
-            # Extract tender IDs
+            # Extract tender IDs and remove duplicates
             tender_ids = df[col].dropna().astype(str).tolist()
-            st.write(f"**Found {len(tender_ids)} tender IDs**")
+            tender_ids = sorted(list(set(tender_ids)))
+            st.write(f"**Found {len(tender_ids)} unique tender IDs**")
 
             if st.button("Validate", type="primary"):
                 if tender_ids:
-                    st.session_state.csv_validation_results = []
-
-                    # Progress tracking
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-
-                    results = []
-                    start_time = time.time()
-
-                    for i, tender_id in enumerate(tender_ids):
-                        status_text.text(f"Validating {tender_id}... ({i + 1}/{len(tender_ids)})")
-
-                        try:
-                            container_client = get_container_client()
-                            if container_client:
-                                result = validate_tender_blob(container_client, tender_id)
-                                results.append(result)
-                        except Exception as e:
-                            results.append({
-                                "Tender ID": tender_id,
-                                "Status": "Error",
-                                "Notes": str(e)
-                            })
-
-                        # Update progress
-                        progress = (i + 1) / len(tender_ids)
-                        progress_bar.progress(progress)
-
-                    elapsed_time = time.time() - start_time
-                    status_text.text(f"Validation completed in {elapsed_time:.2f} seconds!")
-                    st.success(f"Validated {len(tender_ids)} tender IDs in {elapsed_time:.2f} seconds!")
-
-                    # Store results
+                    # MODIFIED: Use the new concurrent processing function
+                    results = process_tenders_concurrently(tender_ids)
                     st.session_state.csv_validation_results = results
-
                 else:
                     st.warning("No valid tender IDs found in the CSV file")
 
@@ -544,7 +551,7 @@ def csv_upload_validation():
 def main():
     """Main application function"""
     # Header
-    st.markdown('<h1 class="main-header">📋 Tender OCR Validator</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📋 OCR Validator</h1>', unsafe_allow_html=True)
 
     # Setup Azure connection
     setup_azure_connection()
@@ -564,7 +571,6 @@ def main():
             csv_upload_validation()
     else:
         st.info("👈 Please connect to Azure using the sidebar to start validating tender IDs.")
-
     # --- Footer Signature ---
     st.markdown("""
         <style>
@@ -605,7 +611,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
