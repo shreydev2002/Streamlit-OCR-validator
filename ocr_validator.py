@@ -218,7 +218,7 @@ def process_tenders_concurrently(tender_ids: List[str]) -> List[Dict[str, Any]]:
     start_time = time.time()
 
     # Use a thread pool to process validations concurrently
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
         # Pass the connection string from session state to the cached function
         conn_str = st.session_state.connection_string
         future_to_tender = {executor.submit(validate_tender_blob_cached, conn_str, tid): tid for tid in tender_ids}
@@ -611,4 +611,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
