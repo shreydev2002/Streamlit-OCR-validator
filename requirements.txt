@@ -4,3 +4,4 @@ pandas
 openpyxl
 certifi
 pymongo
+dotenv
