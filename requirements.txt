@@ -3,3 +3,4 @@ azure-storage-blob
 pandas
 openpyxl
 certifi
+pymongo
